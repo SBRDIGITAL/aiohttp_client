@@ -43,7 +43,8 @@ class AiohttpClient:
         json: Optional[Union[Dict, List]] = None,
         data: Optional[Union[Dict, FormData, bytes]] = None,
         files: Optional[Dict[str, bytes]] = None,
-        headers: Optional[Dict[str, str]] = None
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, str]] = None
     ) -> Any:
         """
         ## Выполнение HTTP-запроса.
@@ -54,6 +55,7 @@ class AiohttpClient:
         :param data: Данные для отправки (может быть словарем, FormData или байтами).
         :param files: Файлы для загрузки.
         :param headers: Заголовки запроса.
+        :param params: Query-параметры для URL (например, {'id': '123'} преобразуется в ?id=123).
         :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
         :raises RuntimeError: Если сессия не была инициализирована.
         """
@@ -66,17 +68,20 @@ class AiohttpClient:
             for name, content in files.items():
                 data.add_field(name, content, filename=name)
 
+        print(f'{path=}')
+
         # Отправка запроса
         async with self.session.request(
             method=method,
             url=path,
             json=json,
             data=data,
-            headers=headers
+            headers=headers,
+            params=params
         ) as response:
             # Определение типа контента
             content_type = response.headers.get(hdrs.CONTENT_TYPE, "")
-
+            print(f'{response._url=}')
             # Обработка JSON
             if "application/json" in content_type:
                 return await response.json(), response.status, response.headers
@@ -150,60 +155,68 @@ class AiohttpClient:
         return await self.request("DELETE", path, **kwargs)
 
 
-# Пример использования
-async def main():
-    base_url =  "https://jsonplaceholder.typicode.com"  # Замените на ваш базовый URL
-
-    async with AiohttpClient(base_url=base_url) as client:
-        # Выполнение GET-запроса
-        content, status, headers = await client.get(path='/posts/1')
-        print('\nGET запрос')
-        print(f'\nContent: {content}')
-        print(f'\nStatus: {status}')
-        print(f'\nHeaders: {headers}')
-
-        # Выполнение POST-запроса
-        data = {'title': 'foo', 'body':'bar', 'userId':1}  # Замените на ваши данные
-        content, status, headers = await client.post(
-            path='/posts/', json=data,
-            headers={'Content-type':'application/json; charset=UTF-8'}
-        )
-        print('\n\n\n\n\nPOST запрос')
-        print(f'\nContent: {content}')
-        print(f'\nStatus: {status}')
-        print(f'\nHeaders: {headers}')
-
-        # Выполнение PATCH-запроса
-        data = {'title': 'updated title'}  # Замените на ваши данные
-        content, status, headers = await client.patch(
-            path='/posts/1', json=data,
-            headers={'Content-type': 'application/json; charset=UTF-8'}
-        )
-        print('\n\n\n\n\nPATCH запрос')
-        print(f'\nContent: {content}')
-        print(f'\nStatus: {status}')
-        print(f'\nHeaders: {headers}')
-
-        # Выполнение PUT-запроса
-        # Замените на ваши данные
-        data = {'id': 1, 'title': 'updated title', 'body': 'updated body', 'userId': 1}  
-        content, status, headers = await client.put(
-            path='/posts/1', json=data,
-            headers={'Content-type': 'application/json; charset=UTF-8'}
-        )
-        print('\n\n\n\n\nPUT запрос')
-        print(f'\nContent: {content}')
-        print(f'\nStatus: {status}')
-        print(f'\nHeaders: {headers}')
-
-        # Выполнение DELETE-запроса
-        content, status, headers = await client.delete(path='/posts/1')
-        print('\n\n\n\n\nDELETE запрос')
-        print(f'\nContent: {content}')  # Обычно для DELETE запросов контент пустой
-        print(f'\nStatus: {status}')
-        print(f'\nHeaders: {headers}')
-
 
 if __name__ == "__main__":
+    # Пример использования
+    async def main():
+        base_url =  "https://jsonplaceholder.typicode.com"  # Замените на ваш базовый URL
+
+        async with AiohttpClient(base_url=base_url) as client:
+            # Выполнение GET-запроса с params
+            params = {'userId': '1'}  # Пример query-параметров
+            content, status, headers = await client.get(path='/posts', params=params)
+            print('\nGET запрос с params')
+            print(f'\nContent: {content}')
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
+            # Выполнение GET-запроса
+            content, status, headers = await client.get(path='/posts/1')
+            print('\nGET запрос')
+            print(f'\nContent: {content}')
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
+            # Выполнение POST-запроса
+            data = {'title': 'foo', 'body':'bar', 'userId':1}  # Замените на ваши данные
+            content, status, headers = await client.post(
+                path='/posts/', json=data,
+                headers={'Content-type':'application/json; charset=UTF-8'}
+            )
+            print('\n\n\n\n\nPOST запрос')
+            print(f'\nContent: {content}')
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
+            # Выполнение PATCH-запроса
+            data = {'title': 'updated title'}  # Замените на ваши данные
+            content, status, headers = await client.patch(
+                path='/posts/1', json=data,
+                headers={'Content-type': 'application/json; charset=UTF-8'}
+            )
+            print('\n\n\n\n\nPATCH запрос')
+            print(f'\nContent: {content}')
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
+            # Выполнение PUT-запроса
+            # Замените на ваши данные
+            data = {'id': 1, 'title': 'updated title', 'body': 'updated body', 'userId': 1}  
+            content, status, headers = await client.put(
+                path='/posts/1', json=data,
+                headers={'Content-type': 'application/json; charset=UTF-8'}
+            )
+            print('\n\n\n\n\nPUT запрос')
+            print(f'\nContent: {content}')
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
+            # Выполнение DELETE-запроса
+            content, status, headers = await client.delete(path='/posts/1')
+            print('\n\n\n\n\nDELETE запрос')
+            print(f'\nContent: {content}')  # Обычно для DELETE запросов контент пустой
+            print(f'\nStatus: {status}')
+            print(f'\nHeaders: {headers}')
+
     # Запуск асинхронной функции
     asyncio.run(main())
