@@ -1,7 +1,22 @@
 from asyncio import run
-from typing import Literal, Optional, Union, Dict, List, Any
+from typing import (
+    Mapping,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    Any,
+)
 
-from aiohttp import FormData, ClientSession, CookieJar, hdrs
+from aiohttp import FormData, ClientResponse, ClientSession, CookieJar
+
+
+Method = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+ResponsePayload = Tuple[Any, int, Mapping[str, str]]
 
 
 
@@ -15,18 +30,47 @@ class AiohttpClient:
     Attributes:
         base_url (str): Базовый URL API.
         session (Optional[ClientSession]): Асинхронная сессия для выполнения запросов.
+        allowed_methods (Tuple[Method, ...]): Допустимые HTTP-методы для запросов.
+        json_content_types (Set[str]): Типы контента, обрабатываемые как JSON.
+        binary_content_types (Set[str]): Точные типы контента, читаемые как байты.
+        binary_main_types (Set[str]): Основные типы контента, читаемые как байты.
     """
-    def __init__(self, base_url: str = ""):
+    def __init__(
+        self,
+        base_url: str = "",
+        allowed_methods: Optional[Sequence[Method]] = None,
+        json_content_types: Optional[Set[str]] = None,
+        binary_content_types: Optional[Set[str]] = None,
+        binary_main_types: Optional[Set[str]] = None,
+    ):
         """
         ## Инициализирует клиент с указанным базовым URL.
 
         Args:
             base_url (str): Базовый URL API, добавляемый ко всем путям.
+            allowed_methods (Sequence[str] | None): Допустимые HTTP-методы
+                для запросов. Можно расширить список для соответствия
+                принципу Open/Closed.
+            json_content_types (set[str] | None): Набор типов контента,
+                обрабатываемых как JSON.
+            binary_content_types (set[str] | None): Набор точных типов
+                контента, которые читаются как байты.
+            binary_main_types (set[str] | None): Набор основных типов
+                контента (часть до «/»), которые читаются как байты.
         """
         self.base_url = base_url
         self.session: Optional[ClientSession] = None
+        self.allowed_methods: Tuple[Method, ...] = tuple(
+            allowed_methods or ("GET", "POST", "PUT", "PATCH", "DELETE")
+        )
+        self.json_content_types: Set[str] = json_content_types or {"application/json"}
+        self.binary_content_types: Set[str] = binary_content_types or {
+            "application/octet-stream",
+            "application/pdf",
+        }
+        self.binary_main_types: Set[str] = binary_main_types or {"image", "text"}
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "AiohttpClient":
         """
         ## Вход в асинхронный контекстный менеджер.
 
@@ -39,7 +83,7 @@ class AiohttpClient:
         )
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *args) -> None:
         """
         ## Выход из асинхронного контекстного менеджера.
 
@@ -49,15 +93,49 @@ class AiohttpClient:
         if self.session:
             await self.session.close()
 
+    def _ensure_method_allowed(self, method: Method) -> None:
+        """
+        ## Проверяет, что HTTP-метод разрешён.
+
+        Args:
+            method (str): HTTP-метод запроса.
+
+        Raises:
+            ValueError: Если метод не входит в список `allowed_methods`.
+        """
+        if method not in self.allowed_methods:
+            allowed = ", ".join(self.allowed_methods)
+            raise ValueError(f"Method '{method}' is not allowed. Allowed: {allowed}")
+
+    async def _read_response(self, response: ClientResponse) -> Any:
+        """
+        ## Возвращает содержимое ответа в зависимости от `Content-Type`.
+
+        Args:
+            response (ClientResponse): Ответ, полученный от `aiohttp`.
+
+        Returns:
+            Any: Декодированное содержимое ответа.
+        """
+        content_type = response.content_type
+        if content_type in self.json_content_types:
+            return await response.json()
+
+        main_type, _, _ = content_type.partition("/")
+        if content_type in self.binary_content_types or main_type in self.binary_main_types:
+            return await response.read()
+
+        return await response.text()
+
     async def __request(self,
-        method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"],
+        method: Method,
         path: str,
-        json: Optional[Union[Dict, List]] = None,
-        data: Optional[Union[Dict, FormData, bytes]] = None,
+        json: Optional[Union[Dict[str, Any], List[Any]]] = None,
+        data: Optional[Union[Dict[str, Any], FormData, bytes]] = None,
         files: Optional[Dict[str, bytes]] = None,
         headers: Optional[Dict[str, str]] = None,
         params: Optional[Dict[str, str]] = None
-    ) -> Any:
+    ) -> ResponsePayload:
         """
         ## Выполняет HTTP-запрос с учётом формата данных.
 
@@ -71,13 +149,16 @@ class AiohttpClient:
             params (Dict[str, str] | None): Query-параметры строки запроса.
 
         Returns:
-            Any: Содержимое ответа, статус-код и заголовки.
+            tuple[Any, int, Mapping[str, str]]: Содержимое ответа,
+                статус-код и заголовки.
 
         Raises:
             RuntimeError: Если сессия ещё не была инициализирована.
         """
         if not self.session:
             raise RuntimeError("Session not started")
+
+        self._ensure_method_allowed(method)
 
         # Обработка файлов
         if files:
@@ -94,21 +175,10 @@ class AiohttpClient:
             headers=headers,
             params=params
         ) as response:
-            # Определение типа контента
-            content_type = response.headers.get(hdrs.CONTENT_TYPE, "")
-            # Обработка JSON
-            if "application/json" in content_type:
-                return await response.json(), response.status, response.headers
+            content = await self._read_response(response)
+            return content, response.status, response.headers
 
-            # Обработка файлов и бинарных данных
-            if any(x in content_type for x in ["octet-stream", "pdf", "image", "text"]):
-                content = await response.read()
-                return content, response.status, response.headers
-
-            # Обработка текста
-            return await response.text(), response.status, response.headers
-
-    async def get(self, path: str, **kwargs):
+    async def get(self, path: str, **kwargs) -> ResponsePayload:
         """
         ## Выполняет HTTP `GET`-запрос.
 
@@ -119,11 +189,11 @@ class AiohttpClient:
             **kwargs: Дополнительные параметры, пробрасываемые в `request`.
 
         Returns:
-            Any: Результат метода `request`.
+            tuple[Any, int, Mapping[str, str]]: Результат метода `request`.
         """
         return await self.__request("GET", path, **kwargs)
 
-    async def post(self, path: str, **kwargs):
+    async def post(self, path: str, **kwargs) -> ResponsePayload:
         """
         ## Выполняет HTTP `POST`-запрос.
 
@@ -134,11 +204,11 @@ class AiohttpClient:
             **kwargs: Дополнительные параметры, пробрасываемые в `request`.
 
         Returns:
-            Any: Результат метода `request`.
+            tuple[Any, int, Mapping[str, str]]: Результат метода `request`.
         """
         return await self.__request("POST", path, **kwargs)
 
-    async def put(self, path: str, **kwargs):
+    async def put(self, path: str, **kwargs) -> ResponsePayload:
         """
         ## Выполняет HTTP `PUT`-запрос.
 
@@ -149,11 +219,11 @@ class AiohttpClient:
             **kwargs: Дополнительные параметры, пробрасываемые в `request`.
 
         Returns:
-            Any: Результат метода `request`.
+            tuple[Any, int, Mapping[str, str]]: Результат метода `request`.
         """
         return await self.__request("PUT", path, **kwargs)
 
-    async def patch(self, path: str, **kwargs) -> Any:
+    async def patch(self, path: str, **kwargs) -> ResponsePayload:
         """
         ## Выполняет HTTP `PATCH`-запрос.
 
@@ -164,11 +234,11 @@ class AiohttpClient:
             **kwargs: Дополнительные параметры, пробрасываемые в `request`.
 
         Returns:
-            Any: Результат метода `request`.
+            tuple[Any, int, Mapping[str, str]]: Результат метода `request`.
         """
         return await self.__request("PATCH", path, **kwargs)
 
-    async def delete(self, path: str, **kwargs):
+    async def delete(self, path: str, **kwargs) -> ResponsePayload:
         """
         ## Выполняет HTTP `DELETE`-запрос.
 
@@ -179,7 +249,7 @@ class AiohttpClient:
             **kwargs: Дополнительные параметры, пробрасываемые в `request`.
 
         Returns:
-            Any: Результат метода `request`.
+            tuple[Any, int, Mapping[str, str]]: Результат метода `request`.
         """
         return await self.__request("DELETE", path, **kwargs)
 
@@ -191,7 +261,8 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    from logging import getLogger
+    from logging import basicConfig, getLogger, INFO
+    basicConfig(level=INFO)
     logger = getLogger(__name__)
 
     # Пример использования

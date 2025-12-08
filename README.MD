@@ -3,6 +3,12 @@
 ## Описание
 `AiohttpClient` — это универсальный асинхронный клиент для работы с API, поддерживающий различные форматы данных. Он использует библиотеку `aiohttp` для выполнения HTTP-запросов и предоставляет удобный интерфейс для работы с RESTful API.
 
+### Ключевые особенности
+- Конфигурируемый список допустимых HTTP-методов (Open/Closed): `allowed_methods`.
+- Гибкая обработка контента без хардкода: настраиваемые наборы `json_content_types`, `binary_content_types`, `binary_main_types`.
+- Поддержка JSON, форм, бинарных данных и загрузки файлов; автоматический выбор способа чтения ответа.
+- Возврат однообразного результата: `(content, status, headers)`.
+
 ## Установка
 Для использования `AiohttpClient`, убедитесь, что у вас установлен Python 3.7 или выше и библиотека `aiohttp`. Вы можете установить `aiohttp` с помощью pip:
 ```bash
@@ -16,6 +22,18 @@ pip install aiohttp
 
 ```python
 client = AiohttpClient(base_url="https://api.example.com")
+```
+
+При необходимости настройте разрешённые методы и обработку контента:
+
+```python
+client = AiohttpClient(
+    base_url="https://api.example.com",
+    allowed_methods=("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"),
+    json_content_types={"application/json", "application/hal+json"},
+    binary_content_types={"application/pdf", "application/octet-stream"},
+    binary_main_types={"image", "text"},
+)
 ```
 
 ### Асинхронный контекстный менеджер
@@ -64,6 +82,10 @@ async def main():
         # Выполнение DELETE-запроса
         content, status, headers = await client.delete(path='/posts/1')
         print(f'DELETE запрос: {content}, Статус: {status}, Заголовки: {headers}')
+
+# Простейшая настройка логирования, если нужно видеть вывод в консоли
+import logging
+logging.basicConfig(level=logging.INFO)
 
 if __name__ == "__main__":
     asyncio.run(main())
