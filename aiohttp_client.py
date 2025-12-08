@@ -1,19 +1,27 @@
-import asyncio
-from typing import Optional, Union, Dict, List, Any
+from asyncio import run
+from typing import Literal, Optional, Union, Dict, List, Any
 
-from aiohttp import FormData, ClientSession, hdrs
+from aiohttp import FormData, ClientSession, CookieJar, hdrs
 
 
 
 class AiohttpClient:
     """
-    ## Универсальный клиент для работы с API поддерживающий разные форматы данных.
+    ## Универсальный асинхронный `HTTP`-клиент поверх `aiohttp`.
+
+    Поддерживает отправку запросов с `JSON`-телом, формами, бинарными данными
+    и файлами, а также автоматический выбор способа чтения ответа.
+    
+    Attributes:
+        base_url (str): Базовый URL API.
+        session (Optional[ClientSession]): Асинхронная сессия для выполнения запросов.
     """
     def __init__(self, base_url: str = ""):
         """
-        ## Инициализация клиента.
+        ## Инициализирует клиент с указанным базовым URL.
 
-        :param base_url: Базовый URL для API.
+        Args:
+            base_url (str): Базовый URL API, добавляемый ко всем путям.
         """
         self.base_url = base_url
         self.session: Optional[ClientSession] = None
@@ -22,23 +30,27 @@ class AiohttpClient:
         """
         ## Вход в асинхронный контекстный менеджер.
 
-        :return: Экземпляр `AiohttpClient`.
+        Returns:
+            AiohttpClient: Текущий экземпляр клиента с активной сессией.
         """
-        self.session = ClientSession(base_url=self.base_url)
+        self.session = ClientSession(
+            base_url=self.base_url,
+            cookie_jar=CookieJar(unsafe=True)
+        )
         return self
 
     async def __aexit__(self, *args):
         """
         ## Выход из асинхронного контекстного менеджера.
 
-        :param args: Аргументы исключения, если они есть.
+        Args:
+            *args: Параметры исключения, если произошла ошибка в блоке `with`.
         """
         if self.session:
             await self.session.close()
 
-    async def request(
-        self,
-        method: str,
+    async def __request(self,
+        method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"],
         path: str,
         json: Optional[Union[Dict, List]] = None,
         data: Optional[Union[Dict, FormData, bytes]] = None,
@@ -47,17 +59,22 @@ class AiohttpClient:
         params: Optional[Dict[str, str]] = None
     ) -> Any:
         """
-        ## Выполнение HTTP-запроса.
+        ## Выполняет HTTP-запрос с учётом формата данных.
 
-        :param method: HTTP-метод (GET, POST, PUT, DELETE).
-        :param path: Путь к ресурсу.
-        :param json: Данные в формате JSON для отправки.
-        :param data: Данные для отправки (может быть словарем, FormData или байтами).
-        :param files: Файлы для загрузки.
-        :param headers: Заголовки запроса.
-        :param params: Query-параметры для URL (например, {'id': '123'} преобразуется в ?id=123).
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
-        :raises RuntimeError: Если сессия не была инициализирована.
+        Args:
+            method (str): HTTP-метод ("GET", "POST" и т.д.).
+            path (str): Путь к ресурсу относительно `base_url`.
+            json (dict | list | None): JSON-данные для отправки.
+            data (dict | FormData | bytes | None): Данные формы или сырые байты.
+            files (Dict[str, bytes] | None): Файлы для загрузки.
+            headers (Dict[str, str] | None): Дополнительные заголовки запроса.
+            params (Dict[str, str] | None): Query-параметры строки запроса.
+
+        Returns:
+            Any: Содержимое ответа, статус-код и заголовки.
+
+        Raises:
+            RuntimeError: Если сессия ещё не была инициализирована.
         """
         if not self.session:
             raise RuntimeError("Session not started")
@@ -67,8 +84,6 @@ class AiohttpClient:
             data = FormData()
             for name, content in files.items():
                 data.add_field(name, content, filename=name)
-
-        print(f'{path=}')
 
         # Отправка запроса
         async with self.session.request(
@@ -81,7 +96,6 @@ class AiohttpClient:
         ) as response:
             # Определение типа контента
             content_type = response.headers.get(hdrs.CONTENT_TYPE, "")
-            print(f'{response._url=}')
             # Обработка JSON
             if "application/json" in content_type:
                 return await response.json(), response.status, response.headers
@@ -96,67 +110,90 @@ class AiohttpClient:
 
     async def get(self, path: str, **kwargs):
         """
-        ## Выполнение HTTP `GET`-запроса.
+        ## Выполняет HTTP `GET`-запрос.
 
-        ### Используется для получения данных.
-        
-        :param path: Путь к ресурсу.
-        :param kwargs: Дополнительные параметры для запроса.
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
+        Используется в основном для получения данных.
+
+        Args:
+            path (str): Путь к ресурсу.
+            **kwargs: Дополнительные параметры, пробрасываемые в `request`.
+
+        Returns:
+            Any: Результат метода `request`.
         """
-        return await self.request("GET", path, **kwargs)
+        return await self.__request("GET", path, **kwargs)
 
     async def post(self, path: str, **kwargs):
         """
-        ## Выполнение HTTP `POST`-запроса.
+        ## Выполняет HTTP `POST`-запрос.
 
-        ### Используется для сохранения и получения данных.
+        Обычно используется для создания или сохранения данных.
 
-        :param path: Путь к ресурсу.
-        :param kwargs: Дополнительные параметры для запроса.
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
+        Args:
+            path (str): Путь к ресурсу.
+            **kwargs: Дополнительные параметры, пробрасываемые в `request`.
+
+        Returns:
+            Any: Результат метода `request`.
         """
-        return await self.request("POST", path, **kwargs)
+        return await self.__request("POST", path, **kwargs)
 
     async def put(self, path: str, **kwargs):
         """
-        ## Выполнение HTTP `PUT`-запроса.
+        ## Выполняет HTTP `PUT`-запрос.
 
-        ### Используется для полного обновления объекта данных.
-        
-        :param path: Путь к ресурсу.
-        :param kwargs: Дополнительные параметры для запроса.
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
+        Применяется для полного обновления объекта.
+
+        Args:
+            path (str): Путь к ресурсу.
+            **kwargs: Дополнительные параметры, пробрасываемые в `request`.
+
+        Returns:
+            Any: Результат метода `request`.
         """
-        return await self.request("PUT", path, **kwargs)
+        return await self.__request("PUT", path, **kwargs)
 
     async def patch(self, path: str, **kwargs) -> Any:
         """
-        ## Выполнение HTTP `PATCH`-запроса.
+        ## Выполняет HTTP `PATCH`-запрос.
 
-        ### Используется для частичного обновления объекта данных.
+        Используется для частичного обновления объекта.
 
-        :param path: Путь к ресурсу.
-        :param kwargs: Дополнительные параметры для запроса.
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
+        Args:
+            path (str): Путь к ресурсу.
+            **kwargs: Дополнительные параметры, пробрасываемые в `request`.
+
+        Returns:
+            Any: Результат метода `request`.
         """
-        return await self.request("PATCH", path, **kwargs)
+        return await self.__request("PATCH", path, **kwargs)
 
     async def delete(self, path: str, **kwargs):
         """
-        ## Выполнение HTTP `DELETE`-запроса.
+        ## Выполняет HTTP `DELETE`-запрос.
 
-        ### Используется для удаления объекта данных.
-        
-        :param path: Путь к ресурсу.
-        :param kwargs: Дополнительные параметры для запроса.
-        :return: Кортеж (содержимое ответа, статус ответа, заголовки ответа).
+        Используется для удаления ресурса.
+
+        Args:
+            path (str): Путь к ресурсу.
+            **kwargs: Дополнительные параметры, пробрасываемые в `request`.
+
+        Returns:
+            Any: Результат метода `request`.
         """
-        return await self.request("DELETE", path, **kwargs)
+        return await self.__request("DELETE", path, **kwargs)
 
+
+# Экспортируемый интерфейс модуля
+__all__ = [
+    "AiohttpClient",
+    ]
 
 
 if __name__ == "__main__":
+    from logging import getLogger
+    logger = getLogger(__name__)
+
     # Пример использования
     async def main():
         base_url =  "https://jsonplaceholder.typicode.com"  # Замените на ваш базовый URL
@@ -165,17 +202,17 @@ if __name__ == "__main__":
             # Выполнение GET-запроса с params
             params = {'userId': '1'}  # Пример query-параметров
             content, status, headers = await client.get(path='/posts', params=params)
-            print('\nGET запрос с params')
-            print(f'\nContent: {content}')
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('GET запрос с params')
+            logger.info(f'Content: {content}')
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
             # Выполнение GET-запроса
             content, status, headers = await client.get(path='/posts/1')
-            print('\nGET запрос')
-            print(f'\nContent: {content}')
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('GET запрос')
+            logger.info(f'Content: {content}')
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
             # Выполнение POST-запроса
             data = {'title': 'foo', 'body':'bar', 'userId':1}  # Замените на ваши данные
@@ -183,10 +220,10 @@ if __name__ == "__main__":
                 path='/posts/', json=data,
                 headers={'Content-type':'application/json; charset=UTF-8'}
             )
-            print('\n\n\n\n\nPOST запрос')
-            print(f'\nContent: {content}')
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('POST запрос')
+            logger.info(f'Content: {content}')
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
             # Выполнение PATCH-запроса
             data = {'title': 'updated title'}  # Замените на ваши данные
@@ -194,10 +231,10 @@ if __name__ == "__main__":
                 path='/posts/1', json=data,
                 headers={'Content-type': 'application/json; charset=UTF-8'}
             )
-            print('\n\n\n\n\nPATCH запрос')
-            print(f'\nContent: {content}')
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('PATCH запрос')
+            logger.info(f'Content: {content}')
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
             # Выполнение PUT-запроса
             # Замените на ваши данные
@@ -206,17 +243,16 @@ if __name__ == "__main__":
                 path='/posts/1', json=data,
                 headers={'Content-type': 'application/json; charset=UTF-8'}
             )
-            print('\n\n\n\n\nPUT запрос')
-            print(f'\nContent: {content}')
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('PUT запрос')
+            logger.info(f'Content: {content}')
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
             # Выполнение DELETE-запроса
             content, status, headers = await client.delete(path='/posts/1')
-            print('\n\n\n\n\nDELETE запрос')
-            print(f'\nContent: {content}')  # Обычно для DELETE запросов контент пустой
-            print(f'\nStatus: {status}')
-            print(f'\nHeaders: {headers}')
+            logger.info('DELETE запрос')
+            logger.info(f'Content: {content}')  # Обычно для DELETE запросов контент пустой
+            logger.info(f'Status: {status}')
+            logger.info(f'Headers: {headers}')
 
-    # Запуск асинхронной функции
-    asyncio.run(main())
+    run(main())  # Запуск асинхронной функции
