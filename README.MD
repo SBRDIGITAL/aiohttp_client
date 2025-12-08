@@ -1,5 +1,8 @@
 # AiohttpClient
 
+![Python >=3.11](https://img.shields.io/badge/Python-%3E%3D%203.11-3776AB?logo=python&logoColor=white)
+![aiohttp >=3.13.2](https://img.shields.io/badge/aiohttp-%3E%3D%203.13.2-2C5282)
+
 ## Описание
 `AiohttpClient` — это универсальный асинхронный клиент для работы с API, поддерживающий различные форматы данных. Он использует библиотеку `aiohttp` для выполнения HTTP-запросов и предоставляет удобный интерфейс для работы с RESTful API.
 
@@ -12,7 +15,7 @@
 ## Установка
 Для использования `AiohttpClient`, убедитесь, что у вас установлен Python 3.7 или выше и библиотека `aiohttp`. Вы можете установить `aiohttp` с помощью pip:
 ```bash
-pip install aiohttp
+pip install "aiohttp>=3.13.2"
 ```
 
 ## Использование
