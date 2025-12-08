@@ -15,6 +15,7 @@ from typing import (
 from aiohttp import FormData, ClientResponse, ClientSession, CookieJar
 
 
+
 Method = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 ResponsePayload = Tuple[Any, int, Mapping[str, str]]
 
@@ -257,9 +258,10 @@ class AiohttpClient:
 # Экспортируемый интерфейс модуля
 __all__ = [
     "AiohttpClient",
-    ]
+]
 
 
+# Пример использования клиента в асинхронном контексте
 if __name__ == "__main__":
     from logging import basicConfig, getLogger, INFO
     basicConfig(level=INFO)
